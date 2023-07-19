@@ -1,0 +1,30 @@
+
+
+Perform methylation analysis: done (_targets.R)
+Perform Differential Expression analisis: missing data
+ - No idat
+ - Normalised matrix provided
+ - Annotation provided
+ 
+ Perform 
+ 
+NBL:
+
+ From paper "Comparative epigenomics by machine learning approach for neuroblastoma" https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9793522/:
+ 
+> Group A, patients with MYCN amplification; Group B, INSS stage IV cancer patients without MYCN amplification; Group C: INSS stage IVs cancer patients; and Group D: INSS stage I, II, and III patients without MYCN amplification. This classification accurately reflects prognosis and confirms consistency among the datasets (Fig. ​(Fig.11C).
+ 
+> Feature selection by probe annotation:
+
+> Feature selection is a useful approach in machine learning when data are constructed using a large number of variables or expert knowledge is available [37]. Therefore, we applied this method to analyze NB DNA methylation array data, because the sample size (n = 493) in the NB DNA methylome data was smaller than the number of variables (p > 480,000). Although probes were designed using expert knowledge (e.g., around TSS, CGI, and enhancer), the probe annotation groups that contributed to the classification were unknown. To evaluate the prediction power of the probe annotation groups, we compared the f1-scores of groups A and B, which were calculated using the harmonic mean of precision and recall [37] (Fig. 3A and B and Table S2). Probe annotation groups were defined by EPIC probe annotation (details in Materials and Methods section). We found that Group A was generally accurately classified when “450K_enhancer” probes (probe group 14, Fig. ​Fig.3A3A and B) were used, and the enhancer region is known to possess variable β-values in NB [20, 21]. Meanwhile, promoter regions with CpG islands had low prediction ability (probe groups 9 and 10, Fig. ​Fig.3A,3A, B).
+
+ML aproach --> feature classification --> classification Tree?
+
+- Enhancer probes (450K_enhancer) seem to be important for group A ( patients with MYCN amplification ) 
+   --> Can check MYCN amplification using methylation data with CNV.methyl package, can use the clariomD array to check for amplification on MYCN. 
+
+- Poor beta value variance on TSS and promoter region so it is a bad classificator
+
+-Other important genes: MYCN, EDAR, FAM13A, PRDM8.
+
+

@@ -1,0 +1,10 @@
+---
+title: 'report.qmd source file with parameters'
+output_format: html_document
+params:
+  your_param: "default value"
+---
+Assume these lines are in report.qmd.
+```{r}
+print(params$your_param)
+```

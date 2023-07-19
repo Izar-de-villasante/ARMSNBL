@@ -1,0 +1,12 @@
+@article{Tomazou2015,
+   author = {Eleni M. Tomazou and Nathan C. Sheffield and Christian Schmidl and Michael Schuster and Andreas Schönegger and Paul Datlinger and Stefan Kubicek and Christoph Bock and Heinrich Kovar},
+   doi = {10.1016/j.celrep.2015.01.042},
+   issn = {22111247},
+   issue = {7},
+   journal = {Cell Reports},
+   month = {2},
+   pages = {1082-1095},
+   title = {Epigenome Mapping Reveals Distinct Modes of Gene Regulation and Widespread Enhancer Reprogramming by the Oncogenic Fusion Protein EWS-FLI1},
+   volume = {10},
+   year = {2015},
+}
