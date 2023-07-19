@@ -290,7 +290,12 @@ DMPextr <- function(
     
     if(nrow(DMP_1)<2){
       warning(paste("No DMP found for contrast:", ContrastsDM[i], sep=" "))
-      next
+      dt<-annSub[0,]
+      dt$Type=character(length = 0L)
+      dt$Contrast=character(length=0L)
+      dt$diff_meanMeth=numeric(length = 0L)
+      return(dt)
+      
     }
     else{
       DMP_1$Type <- "Hyper"

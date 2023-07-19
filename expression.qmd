@@ -345,6 +345,7 @@ str(counts)
 ```{r}
 library(data.table)
 ARMS_ids<-intersect(ss$Exp_SID, colnames(ARMS))
+anno[,rn:=rownames(anno)]
 anno_ids<- colnames(anno)
 setkey(ss,Exp_SID)
 ARMS.model <- mod(object = as.matrix(ARMS[,.SD,.SDcols=ARMS_ids]),
@@ -355,8 +356,7 @@ ARMS.model <- mod(object = as.matrix(ARMS[,.SD,.SDcols=ARMS_ids]),
 ```
 
 ```{r}
-anno[,rn:=rownames(anno)]
-DEGs <- DMPextr(ARMS.model,p.value = 0.05, beta_normalized = ARMS[,.SD,.SDcols=ARMS_ids],mDiff = 0.000001,ann=anno)
+DEGs <- DMPextr(ARMS.model,p.value = 0.05, beta_normalized = ARMS[,.SD,.SDcols=ARMS_ids],mDiff = 0.000001,ann=ARMS[,.SD,.SDcols=anno_ids])
 ```
 
 
