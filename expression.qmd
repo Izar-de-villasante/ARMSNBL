@@ -9,6 +9,13 @@ params:
   # expression_mat: "raw/20230712_OMartinez_ARMSNBL/DEG/Norm_NBL_values.xlsx"
 ---
 
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  # comment = "#>", echo = FALSE, fig.width = 6
+  cache = T
+)
+```
+
 ```{r dtable function}
 #| include: false
 #| eval: true
@@ -101,8 +108,17 @@ renderDT<- function(data){
 
 ```{r}
 #| include: false
+library(DT)
+library(readxl)
+library(data.table)
 ss <-readRDS("data/ss_clean.rds")
 known.genes <- readRDS("data/known.genes.RDS")
+DMRs_ARMS <- readRDS("data/DMRs_ARMS.rds")
+dt_cor <- readRDS("data/dt_cor.rds")
+DMR_DEG_plots <- readRDS("data/DMR_DEG_plots.rds")
+ARMS.model <-readRDS("data/ARMS.model.rds")
+counts <- readRDS("data/counts.rds")
+source("R/functions.R")
 ```
 
 
@@ -146,7 +162,7 @@ table(ss[,Condition,by=Type])
 
 
 
-```{r}
+```{r dtable ss}
 dtable(ss)
 ```
 
@@ -156,7 +172,7 @@ dtable(ss)
 
 The added file will be used as starting point to annotate CalriomD array.
 
-```{r}
+```{r anotation}
 library(data.table)
 anno <- data.table::fread(params$array_annotation)
 names(anno) <- make.names(colnames(anno))
@@ -195,17 +211,19 @@ In contrast, `r round(length(candidate_genes) /length(known.genes) *100)`% of th
 One option would be that ClariomD has much more genes in it's annotation than the EPIC arrays. Let's check on that:
 
 ```{r}
+#| eval: true
 library(clariomdhumantranscriptcluster.db)
 select(clariomdhumantranscriptcluster.db, keys=keys(clariomdhumantranscriptcluster.db),columns = c("PROBEID","SYMBOL"))-> clariom_gene_symbol
 clariom_gene_symbol <- clariom_gene_symbol[!is.na(clariom_gene_symbol$SYMBOL),]
 length(unique(clariom_gene_symbol$SYMBOL))
 ```
 
-So in fact only `r nrow(clariom_gene_symbol)` probes in the array map to known genes, of which 25979 probes contain annotation for genes that also contain annotation for methylation. 
+<!-- So in fact only `r nrow(clariom_gene_symbol)` probes in the array map to known genes, of which 25979 probes contain annotation for genes that also contain annotation for methylation. -->
 
 In summary:
 
 ```{r}
+#| eval: true
 su <- data.table(
   # Probes in expression array:
   N_probes_array=NROW(anno),
@@ -253,6 +271,7 @@ A possible explanation is that the Clariom D array is intended to have what Affy
 >James W. Mac Donald https://support.bioconductor.org/p/126059/
 
 ```{r}
+#| eval: false
 install.packages("http://mbni.org/customcdf/25.0.0/entrezg.download/clariomdhumanhsentrezg.db_25.0.0.tar.gz")
 install.packages("http://mbni.org/customcdf/25.0.0/entrezg.download/pd.clariomdhuman.hs.entrezg_25.0.0.tar.gz")
 ```
@@ -266,6 +285,7 @@ Here we must start from the .CEL files to map the probes to the new probsets def
 
 
 ```{r}
+#| eval: false
 library(annotate)
 library(pdInfoBuilder)
 library(pd.clariomdhuman.hs.entrezg)
@@ -312,7 +332,8 @@ superenh_anno <- data.table::fread("https://medical-epigenomics.org/papers/tomaz
 
 ### Counts:
 
-```{r}
+```{r read expression data matrix}
+#| eval: false
 namedlist <- function(...) {
   nl <- list(...)
   argnames <- sys.call()
@@ -342,99 +363,104 @@ counts <-namedlist(NBL,ARMS)
 str(counts)
 ```
 
+In order to have the same contrasts as in the methylation analysis we create the following table:
 ```{r}
+values <- tibble::tibble( # Use all possible combinations of input settings.
+
+  group_var = "Sample_Group",
+  Contrasts = c(paste(c("Sample_Grouptumour_ARMS-Sample_Groupmetastasis_ARMS", #T1 vs T2 -> mice
+                        "Sample_Groupcell_line_ARMS-Sample_Groupprimary_ARMS", #T0 vs T3 -> start end
+                        "Sample_Groupcell_line_ARMS-Sample_Grouptumour_ARMS",  #T0 vs T1 -> tumor
+                        "Sample_Groupmetastasis_ARMS-Sample_Groupprimary_ARMS",  #T2 vs T3 -> metastasi
+                        "Sample_Groupcell_line_ARMS-(Sample_Groupprimary_ARMS+Sample_Grouptumour_ARMS+Sample_Groupmetastasis_ARMS)/3",  #T0 vs T1&T2&T3
+                        "(Sample_Groupprimary_ARMS+Sample_Groupcell_line_ARMS)/2-(Sample_Grouptumour_ARMS+Sample_Groupmetastasis_ARMS)/2"  #T0&T1 vs T2&T3
+                        ),collapse = ";"
+                      ),
+                paste(c("Sample_Groupprimary_NBL-Sample_Grouptumour_NBL", #T0 vs T1 -> tumor
+                        "Sample_Grouptumour_NBL-Sample_Groupmetastasis_NBL", #T1 vs T2 -> mice
+                        "(Sample_Groupprimary_NBL+Sample_Grouptumour_NBL)/2-Sample_Groupmetastasis_NBL",  #T0&T1 vs T2 -> tumor vs metastasi
+                        "Sample_Groupprimary_NBL-(Sample_Grouptumour_NBL+Sample_Groupmetastasis_NBL)/2" #T0 vs T1&T2 -> culture vs Tissue
+                        ),collapse = ";"
+                      ),
+                paste(c("Sample_Grouptumour_ARMS-Sample_Grouptumour_NBL", # T1 -> tumors
+                       "Sample_Groupmetastasis_ARMS-Sample_Groupmetastasis_NBL", #T2 -> metastasi
+                       "Sample_Groupcell_line_ARMS-Sample_Groupprimary_NBL",  # T0 CL
+                       "(Sample_Groupcell_line_ARMS+Sample_Groupprimary_NBL)/2-(Sample_Grouptumour_ARMS+Sample_Groupmetastasis_ARMS+Sample_Grouptumour_NBL+Sample_Groupmetastasis_NBL)/4" #T0 vs T1&T2 -> culture vs Tissue
+
+                       ),collapse = ";"
+                )
+  ),
+                
+  Contrast_names=list(c("At1-At2:tissue","At0-At3:start/end","At0-At1:tumors","At2-At3:metastasis","At0-All:Cell_line","At0At1 - At2At3:TuMet"),
+                   c("Nt0-Nt1:tumor","N1-Nt2:tissue","Nt0+Nt1-Nt2:tumor/metastasi","Nt0-All:culture/tissue"),
+                   c("At1-Nt1:tumors","At2-Nt2:metastasi","At0-Nt0:Cultures","culture vs tissue")
+                   )
+)
+
+```
+
+
+
+
+```{r DE model }
 library(data.table)
+ARMS<-counts[["ARMS"]]
 ARMS_ids<-intersect(ss$Exp_SID, colnames(ARMS))
-anno[,rn:=rownames(anno)]
-anno_ids<- colnames(anno)
+ARMS[,rn:=as.numeric(rownames(ARMS))]
+anno_ids<- c("rn",colnames(anno))
 setkey(ss,Exp_SID)
-ARMS.model <- mod(object = as.matrix(ARMS[,.SD,.SDcols=ARMS_ids]),
-                  group_var = "Condition",
+ARMS_exp.mat<-as.matrix(ARMS[,.SD,.SDcols=ARMS_ids])
+ARMS_ss <- ss[ARMS_ids,]
+
+```
+
+```{r}
+#| eval: false
+ARMS.model <- mod(object = ARMS_exp.mat,
+                  group_var = values$group_var[1],
+                  contrasts = values$Contrasts[1],
                   covs= NULL ,
-                  metadata = ss[ARMS_ids,],
-                  idcol="Exp_SID")
+                  metadata = ARMS_ss,
+                  idcol="Exp_SID",
+                  rename=values$Contrast_names[[1]])
 ```
+
+
+```{r DE anno}
+DEGs <- DMPextr(fit=ARMS.model,p.value = 0.05, beta_normalized = ARMS[,.SD,.SDcols=ARMS_ids],mDiff = 0.000001,ann=ARMS[,.SD,.SDcols=anno_ids],writeOut = F)
+```
+
 
 ```{r}
-DEGs <- DMPextr(ARMS.model,p.value = 0.05, beta_normalized = ARMS[,.SD,.SDcols=ARMS_ids],mDiff = 0.000001,ann=ARMS[,.SD,.SDcols=anno_ids])
+#| eval: false
+DEGs$Type<-ifelse(DEGs$logFC>0,"Hyper","Hypo")
+apply_filter_dmps(dmps = DEGs,p.value = seq(0.00,0.05,0.01),mDiff = seq(0,4,.5),path = "analysis/DE")
 ```
-
-
-
+:::{.column-page}
+![pvals](analysis/DE//dmp_params.png){width=120%}
+:::
 
 ```{r}
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
+#| eval: false
 
-BiocManager::install("clariomdhumantranscriptcluster.db")
-library(clariomdhumantranscriptcluster.db)
+DEGs[,diffexpressed:=ifelse(abs(logFC)<2,"NONE",ifelse(logFC<0,"DOWN","UP")) ]
+vp<-vulcanos(data=DEGs,x="logFC",y="adj.P.Val",col="diffexpressed",label="Gene.Symbol",labSize = 2,max.overlaps = 100)
+ggsave(filename = "DE_vulcano_plots.png",plot = vp,device = "png",path =  "analysis/DE",dpi = "retina" )
 ```
 
+:::{.column-page}
+![vulcanos](analysis/DE/DE_vulcano_plots.png){width=100%}
+:::
 
-The Clariom D array is intended to have what Affy calls 'deep content', unfortunately much of which isn't annotated, which is why of the ~139K probesets on that array, only ~26.5K have a Gene ID. There are probably many reasons for that, but the primary reason is that Affy put a bunch of speculative content on the array which remains speculative to this day.
-
-The MBNI group at Michigan do a re-mapping of the probesets where they just pretend Affy never did any annotating, and they take all the probes on the array, align to the genome and then throw out all the probes that don't align to a unique genomic position. They then take the remaining probes and count up all those that align to a known gene location, and put them in new probesets that are just one probeset per gene. They take the 8.1M probes on this array and throw out 5.7M of them, and only use the remaining 29% of the probes to do that.
-
-So an alternative would be to Google 'MBNI custom cdf', download the current pdInfo and transcript packages (clariomdhumanhsentrezg.db and pd.clariomdhuman.hs.entrezg, respectively) and use them instead of the Affy versions. With the MBNI re-mapped data you get more genes:
-
-```{r}
-install.packages("http://mbni.org/customcdf/25.0.0/entrezg.download/clariomdhumanhsentrezg.db_25.0.0.tar.gz")
-```
-
-
-
-
-## DEGs:
-
-```{r}
-library(readxl)
-library(data.table)
-
-nbl_DEGs <- list.files("raw/20230712_OMartinez_ARMSNBL/DEG/NBL/",full.names = T)
-Tat72_off <- readxl::read_xlsx("data-raw/Transcriptome_HClinic_Vcasanova_20042023/Tat72VSTetOFF.xlsx", sheet = 3)
-Tat72_off$Contrast="Tat72_off"
-Tat_Tat72 <- readxl::read_xlsx("data-raw/Transcriptome_HClinic_Vcasanova_20042023/TatVSTat72.xlsx", sheet = 3)
-Tat_Tat72$Contrast="Tat_Tat72"
-Tat_off <- readxl::read_xlsx("data-raw/Transcriptome_HClinic_Vcasanova_20042023/TatVSTetOFF.xlsx", sheet = 3)
-Tat_off$Contrast="Tat_off"
-
-```
-
-```{r}
-dt_DEGs <- data.table::data.table(rbind(Tat_Tat72,Tat72_off,Tat_off))
-# dt_DEGs <- dt_DEGs[RealFC<0.5 | RealFC >2,]
-```
-
-```{r}
-dtable(dt_DEGs)
-```
 
 ## Methylation:
 
-"El primer objetivo es ver si la proteína TAT del VIH, induce cambios en el metiloma. La proteína TAT está codificada por 2 exones que realizan funciones diferentes y queremos además aislar el efecto de cada uno, por eso hemos generado unas líneas celulares de jurkat establemente transfectadas con:
+A previous methylation analysis was performed. You can check the results here:
 
-a) Un vector vacío que será nuestro control: muestras 1, 7 y 13 (triplicados)
-b) Un vector con la proteína TAT completa: muestras 3, 9 y 14 (triplicados)
-c) Un vector con solo el primer exón de TAT: muestras 5, 11 y 16 (triplicados)
+:::{.column-page}  
+<iframe width="780" height="500" class="slide-deck" src="etc/presentation_ARMSNBL.pdf" data-external="1"></iframe>
+:::
 
-La comparativa entre estos tres grupos es la primera que nos interesa. a-b, a-c y b-c."
-
-
-Por otro lado, la DOXYCICLINA "apaga" la expresión de TAT y el segundo objetivo entonces es ver si el "apagado" de TAT con la DOXY hace algún cambio en el metiloma. Por eso la comparativa aquí sería cada una de las tres líneas anteriores con y sin DOXY, así que tendremos además las siguientes muestras:
-
-d) Un vector vacío que será nuestro control + DOXY: muestras 2 y 8 (duplicados)
-e) Un vector con con la proteína TAT completa + DOXY: muestras 4, 10 y 15 (triplicados)
-f) Un vector con solo el primer exón de TAT + DOXY: muestras 6 y 12 (duplicados)
-
-La segunda comparativa que nos interesa, por tanto, es. a-d, b-e y c-f.
-
-While the first objective yielded positive results no difference was found for the second (Doxi) apporach.
-
-### PCA plot:
-
-PCR plots:
-
-![PCA](data/colored.by.Condition_shape.Type1.png)
 
 
 ### DMRS:
@@ -442,40 +468,30 @@ PCR plots:
 ```{r}
 #| eval: false
 
-dmrs<-readRDS("data/dmrs.rds")
+dmrs<-as.data.table(readRDS("data/dmrs1_ARMS.rds"))
+dmrs<-dmrs[!is.na(overlapping.genes),]
 ano_cols<-c("seqnames","start","end","width","no.cpgs","HMFDR","meandiff","Contrast")
 dt_list<- lapply(
   1:NROW(dmrs),function(rn){  # For every position or ProbeID do:
-    UCSC <- data.table(      # 1. generate a data.table (per row)
+    UCSC <-       # 1. generate a data.table (per row)
       dmrs[rn,       # 2. split UCSC gene and position
                lapply(       # 3. new row for every combination of gene/position
                  overlapping.genes,        # 4. add Contrast porbeID and bval difference
                  function(x)unlist(strsplit(x,","))
                  )
                ,by=ano_cols]
-      )
+      
     })
 dt_dmrs <- rbindlist(dt_list)
-DMRs <- dt_dmrs[,Gene:=V1][!is.na(V1),]
-DMRs$V1 <- NULL
-# c1<-DMRs[Contrast== "Control_No-Exon1_No",.(.SD,meandiff=-meandiff,Contrast="Tat72_off"),.SDcols=ano_cols[!ano_cols %in% c("meandiff","Contrast")]]
-c1<-DMRs[Contrast== "Control_No-Exon1_No",]
-c1$Contrast <- "Tat72_off"
-c1$meandiff <- -c1$meandiff
+DMRs_ARMS <- dt_dmrs[,Gene:=V1][!is.na(V1),]
+DMRs_ARMS$V1 <- NULL
 
-c2<-DMRs[Contrast== "Control_No-TAT_No",]
-c2$Contrast <- "Tat_off"
-c2$meandiff <- -c2$meandiff
-
-c3<-DMRs[Contrast== "Exon1_No-TAT_No",]
-c3$Contrast <- "Tat_Tat72"
-c3$meandiff <- -c3$meandiff
-DMRs<-rbind(c1,c2,c3)
-saveRDS(DMRs,"data/DMRs.rds")
+saveRDS(DMRs_ARMS,"data/DMRs_ARMS.rds")
 ```
 
 
 ```{r}
+DMRs<-DMRs_ARMS
 dtable(DMRs)
 ```
 
@@ -487,32 +503,49 @@ dtable(DMRs)
 
 ## DMRs vs expression
 
+In first place let's see if there is any overlap between Differentially methylated genes (DMGs) and Differentially Expressed Genes (DEGs):
+
 ```{r}
-dt_DEG_DMR <- merge(DMRs,dt_DEGs,by=c("Gene","Contrast"),all = T)
-tab <- dt_DEG_DMR[,.(DEGs=sum(!is.na(ID)),DMRs=sum(!is.na(start)),overlap=sum(!(is.na(start)) &!(is.na(ID)) )),by=c("Contrast")]
+DEGs[,Gene:=Gene.Symbol]
+dt_DEG_DMR <- merge(DMRs_ARMS,DEGs,by=c("Gene","Contrast"),all = T)
+tab <- dt_DEG_DMR[,.(DEGs=sum(!is.na(Probe.Set.ID)),DMRs=sum(!is.na(start)),overlap=sum(!(is.na(start)) &!(is.na(Probe.Set.ID)) )),by=c("Contrast")]
 kableExtra::kbl(tab)|>kableExtra::kable_classic_2()
 ```
 
+In the table above there is one row for each DMG associated to a DMR, so there may be more 
 ### Venn diagrams:
 
-# ```{r}
-# #| column: screen-inset-right
-# #| layout-ncol: 3
-# #| results: hide
-# #| fig-keep: all
-#
-# library(ggvenn)
-#
-#  g1<-ggvenn(
-#     pdata,
-#     setdiff(names(pdata),"V1"),#levels,
-#     fill_color = c("#0073C2FF", "#EFC000FF", "#868686FF", "#CD534CFF"),
-#     stroke_size = 0.5, set_name_size = 4
-#   )
-#
-#
-#
-# ```
+
+```{r}
+#| column: screen-inset-right
+#| layout-ncol: 1
+#| results: hide
+#| fig-keep: all
+#| eval: false
+library(gridExtra)
+library(venn)
+library(ggplot2)
+library(ggpolypath)
+library(grid)
+dt_venn <- dt_DEG_DMR[!is.na(Gene.Symbol)&!is.na(start),Gene,by=Contrast]
+genelist <- unique(dt_venn$Gene)
+gl <- as.data.frame(lapply(unique(dt_venn$Contrast),function(x)genelist %in% dt_venn[Contrast==x,Gene]))
+names(gl)<-unique(dt_venn$Contrast)
+ARMS_venn.plot <- venn::venn(gl,ilabels=TRUE, zcolor = "style", ggplot=T, box=F)
+# ARMS_euler.plot <- plot(euler(gl, shape = 'ellipse'),quantities=T)
+# ARMS_euler.plot
+ARMS_venn <- grid.arrange(ARMS_venn.plot,
+             top=grid::textGrob("ARMS: Differentially Expressed & Differentially Methylated Genes",gp=grid::gpar(fontsize=14,font=3))
+)
+
+ggsave(filename = "ARMS_VENN.png",plot = ARMS_venn,device = "png",path =  "analysis/DE",dpi = "retina" )
+
+```
+
+:::{.column-page}
+![VENN_ARMS](analysis/DE/ARMS_VENN.png){width=100%}
+:::
+
 
 
 ### DEG/DMR overlapping Correlations:
@@ -526,7 +559,7 @@ Now we want to get the mean beta value for each sample in the dmr location:
 
 
 ```{r}
-ol <- dt_DEG_DMR[!(is.na(start)) &!(is.na(ID)),]
+ol <- dt_DEG_DMR[!is.na(Gene.Symbol)&!is.na(start),]
 ```
 
 
@@ -536,21 +569,53 @@ ol <- dt_DEG_DMR[!(is.na(start)) &!(is.na(ID)),]
 library(data.table)
 library(GenomicRanges)
 library(IlluminaHumanMethylationEPICanno.ilm10b2.hg19)
-
+betas <-as.data.table(readRDS("data/betas_ARMS.rds"),keep.rownames = "ProbeID")
 locs <- IlluminaHumanMethylationEPICanno.ilm10b2.hg19::Locations
 locs.ranges <- GRanges(locs$chr, IRanges(locs$pos, locs$pos))
 names(locs.ranges) <- rownames(locs)
-
+# locs.ranges$gene_element <- IlluminaHumanMethylationEPICanno.ilm10b2.hg19::Other$UCSC_RefGene_Group
+# locs.ranges$gene <- IlluminaHumanMethylationEPICanno.ilm10b2.hg19::Other$UCSC_RefGene_Name
+mcols(locs.ranges)<-IlluminaHumanMethylationEPICanno.ilm10b2.hg19::Other
 dt_DEG_DMR_intersect<-lapply(1:NROW(ol),function(nr){
   cont<-ol[nr,Contrast]
-  xpr <- counts[[cont]][ID==ol[nr,ID]]
-  xpr<-xpr[,.SD,.SDcols=names(xpr)[!(names(xpr)%in%c("ID","gene"))]]
+  xpr <- counts[["ARMS"]][Probe.Set.ID==ol[nr,Probe.Set.ID]]
+  xpr<-xpr[,.SD,.SDcols=names(xpr)[!(names(xpr)%in%c("rn",names(anno)))]]
   expression <- suppressWarnings(melt(xpr,measure.vars=colnames(xpr),variable.name = "SID",value.name = "TPM" ))
-  SIDs <- as.character(expression$SID)
+  SIDs <- ss[Exp_SID %in% as.character(expression$SID),barcode]
   cgs <- names(subsetByOverlaps(locs.ranges,GRanges(ol[nr,])))
 
-  b<-betas[probeID %in% cgs ,lapply(.SD,function(x)mean(x,na.rm=T)),.SDcols=SIDs]
-  meth <- suppressWarnings( melt(b,measure.vars=colnames(b),variable.name = "SID",value.name = "DMR.meth" ))
+  #### Annotate DMRs with genomic location:
+  
+  ann<-as.data.frame(mcols( subsetByOverlaps(locs.ranges,GRanges(ol[nr,]))))|>as.data.table(keep.rownames="ProbeID")
+
+  # Possibility of multiple genes and genomic location per probe
+  genomic<-lapply(1:NROW(ann),
+                  function(cg){
+                    # For every position or ProbeID do:
+                                          # 1. generate a data.table (per row)
+                    UCSC_genes <-ann[cg,        # 2. split UCSC gene and position
+                        lapply(           # 3. new row for every combination of gene/position
+                               .SD,       # 4. add Contrast porbeID and bval difference
+                               function(x)unlist(strsplit(x,";"))
+                               )
+                        ,.SDcols=c("UCSC_RefGene_Group","UCSC_RefGene_Name")]
+                    enhancers<-ann[cg,.SD,.SDcols=unlist(sapply(c("Enhancer","OpenChromatin","TFBS"),function(n) colnames(ann)[colnames(ann) %like% n]))]
+                    return(cbind(UCSC_genes,enhancers))
+                  }
+                  
+                  )
+  # 5. rbind all together:
+  genomic_loc <- rbindlist(genomic)|> unique() # should get gene annotation from here to be fair
+  ge <- factor(genomic_loc$UCSC_RefGene_Group,levels = c("3'UTR","ExonBnd", "1stExon","5'UTR","Body","TSS200","TSS1500"),ordered=T  )
+  gene_location <- ifelse(startsWith( as.character(max(ge)),"TSS" ),"promoter","intragenic")
+  
+  annot <- genomic_loc[,lapply(.SD,function(x)paste(unique(x[nchar(x)>0]),collapse = ";"))]
+  annot$gene_location <- gene_location
+  ####
+  
+  b<-betas[ProbeID %in% cgs ,lapply(.SD,function(x)mean(x,na.rm=T)),.SDcols=SIDs]
+  meth <- suppressWarnings( melt(b,measure.vars=colnames(b),variable.name = "barcode",value.name = "DMR.meth" ))
+  meth$SID <- ss[meth,Exp_SID,on="barcode"]
   # list(meth,expression)
   m <- merge(meth,expression,by="SID")
   m <- m[,lapply(.SD,as.numeric),by=SID]
@@ -558,20 +623,33 @@ dt_DEG_DMR_intersect<-lapply(1:NROW(ol),function(nr){
   cor<-cor.test(dt$DMR.meth,dt$TPM)
   dt$correlation <- cor$estimate
   dt$cor.pval <- cor$p.value
+  dt <- cbind(dt,annot)
+  dt$barcode=nr
   return(dt)
   })|>rbindlist()
-dt_DEG_DMR_intersect[,grp:=tstrsplit(SID,"_",keep = 1)]
 ```
 
 ```{r}
 #| eval: false
+
+
 dt_cor <-dt_DEG_DMR_intersect
+dt_cor$Condition <-ss[dt_DEG_DMR_intersect,"Condition",on="SID"]
 dt_cor$Contrast <- as.factor(dt_cor$Contrast)
-dt_cor$SID <- as.factor(dt_cor$Contrast)
+dt_cor$SID <- as.factor(dt_cor$SID)
+reg_element_names<-unlist(sapply(c("Enhancer","OpenChromatin","TFBS"),function(n) colnames(dt_cor)[colnames(dt_cor) %like% n]))
+reg <- dt_cor[,sapply(.SD,nchar)>0,.SDcols=reg_element_names   ]
+dt_cor$regulatory <- apply(reg,1,function(x)paste(colnames(reg)[x],collapse=";"))
 setorder(dt_cor,cor.pval,Gene)
 saveRDS(dt_cor,"data/dt_cor.rds")
 
 ```
+
+```{r}
+reg_element_names<-unlist(sapply(c("Enhancer","OpenChromatin","TFBS"),function(n) colnames(dt_cor)[colnames(dt_cor) %like% n]))
+
+```
+
 
 #### Table for DMR & DEG:
 
@@ -593,20 +671,19 @@ library(ggrepel)
 DMR_DEG_plots <- list()
 plots_folder <- "analysis/Integration_with_expression/DEGvsDMR/pval"
 dir.create(plots_folder,recursive = T,showWarnings = F)
-setkeyv(dt_cor,c("cor.pval","Gene","width"))
+setkeyv(dt_cor,c("barcode"))
 
 for(cont in unique(dt_cor$Contrast)){
-  dt<-head(dt_cor[Contrast==cont,],60)
-  lg <- dt[,.(gene=unique(Gene),width=unique(width)),by=cor.pval]
-
-  plist <- lapply(1:NROW(lg),function(nr){
-    pdata <- dt_cor[lg[nr,]]
-    plot_name <- paste0("/DEG_DMR.pval_", nr, ".png")
+  
+  ID<-dt_cor[Contrast==cont,head(unique(barcode),10)]
+  plist <- lapply(ID,function(nr){
+    pdata <- dt_cor[barcode==nr,]
+    plot_name <- paste0("/DEG_DMR.pval_", unlist(unique(dt_cor[barcode==nr,Gene]))[1], ".png")
     plt_path <- paste(plots_folder, cont, sep = .Platform$file.sep)
     dir.create(plt_path,recursive = T,showWarnings = F)
     p<-ggplot(data=pdata, aes(x=as.numeric(TPM),y=as.numeric(DMR.meth),colour=SID)) +
-    geom_point(aes(shape=grp),size=8,alpha=0.6) +
-    xlab("Mean DMR methylation") + ylab("Transcripts x Milion") +
+    geom_point(aes(shape=Condition),size=8,alpha=0.6) +
+    xlab("Mean Gene methylation (DMR)") + ylab("Mean Gene Expression (Probeset)") +
 
     geom_smooth(method = "lm",
                 inherit.aes = F,
@@ -631,123 +708,384 @@ saveRDS(DMR_DEG_plots,"data/DMR_DEG_plots.rds")
 
 ```
 
-#### Tat_Tat72
 
-```{r}
+```{r cor.plots loop, results='asis'}
 #| column: screen-inset-right
-#| layout-ncol: 2
+#| layout-ncol: 4
 #| results: hide
+#| fig-height: 4
 #| fig-keep: all
-DMR_DEG_plots[["Tat_Tat72"]]
-```
 
+# FUN <- function(cont) cat("\n\n#### Top Correlation plots for contrast ", cont, "\n
+# ```{r}
+# #| column: screen-inset-right
+# #| layout-ncol: 4
+# #| results: hide
+# #| fig-height: 4
+# #| fig-keep: all
+#   print(DMR_DEG_plots[[",cont,"]][1:10])
+# ```\n")
+# 
 
-#### Tat_off
+# invisible(sapply(values$Contrast_names[[1]],FUN))
+DMR_DEG_plots
 
-```{r}
-#| column: screen-inset-right
-#| layout-ncol: 2
-#| results: hide
-#| fig-keep: all
-DMR_DEG_plots[["Tat_off"]]
-```
-
-#### Tat72_off
-
-```{r}
-#| column: screen-inset-right
-#| layout-ncol: 2
-#| results: hide
-#| fig-keep: all
-DMR_DEG_plots[["Tat72_off"]]
 ```
 
 
 
+
+# Pathway analysis
+
+The pathways analysis will be performed analysing 2 sets of genes: 
+1. `Full` DMR/DMPs: the full set of significant diferentially methylated & expressed genes. 
+2. `Cor.sig`: A subset of the above where the correlation p.value is smaller than 0.05
+
+## DNA methylation context:
+
+Although the relationship between DNA methylation and gene expression is
+complex and the mechanisms involved in gene regulation by DNA
+methylation are diverse. Fortunately, over the years researchers have
+found some common relationships between gene methylation and gene
+expression:
+
+DNA methylation is an epigenetic mark that has been traditionally
+associated with gene silencing, specially when methylation happens on
+promoter regions. DNA methylation is related with the repressed
+chromatin state which blocks the access of transcription factors to
+promoter regions. Thus, silencing promoter activity in a stable way and
+reducing transcription @Suzuki2008.
+
+In the other hand, the bodies of active genes in plants and animals are
+often heavily methylated. @Suzuki2008
+
+Therefore, usually it is expected to find most of the genes to have
+negative correlations between DNA methylation and gene transcription in
+promoter regions while some of the genes might present positive
+correlations specially in intra-genic regions.
+
+Now, let's inspect our data, the following table shows a summary of the
+paired DMGs and DEGs:
+
+```{r}
+
+tab.full <- dt_cor[,.(
+  negative.cor=sum(unique(correlation)<0),
+  positive.cor=sum(unique(correlation)>0),
+  Regulatory.elements=sum(nchar(unique(regulatory))>0),
+  Total=sum(unique(correlation)!=0)),
+  by=c("Contrast","barcode")]
+tab_summary <-tab.full[,lapply(.SD,sum),by=Contrast,.SDcols=c("Regulatory.elements","negative.cor","positive.cor","Total")]
+kableExtra::kbl(tab_summary)|>kableExtra::kable_classic_2()
+```
+
+::: callout-warning{.column-page-inset}
+Here you can see a summary table of the Total ammount of genes that are both Differentially Methylated and Differentially Expressed. For this to yield true, there has to be at least one DMR, composed by at least 3 probes (cpg) from the methylation microarray that fall in the same region of the genome as well as a significant difference in expression  associated to the same gene:
+- Regulatory.elements: Genes that have a DMR associated to any of the following regulatory elements:  ` r paste(reg_element_names, collapse=", ")` 
+- negative.cor: Total number of negatively correlated genes where methylation and expression work in opposite directions.
+- positive.cor: Total number of positively correlated genes where methylation and expression go in the same direction.
+- Total ammount of genes that are both DE and DM. 
 :::
 
 
 
 
-
-
-
-### DMPS:
-
 ```{r}
-#| eval: false
-dmps <-tar_read(dmps_f_full)
-dmps[Contrast=="Control_No-TAT_No",]
+dtable(dt_cor[,.SD,.SDcols=c("Gene","Contrast","no.cpgs","width","SID","DMR.meth","TPM","correlation","cor.pval", "gene_location",reg_element_names)])
 ```
 
 
-## DEGs vs methylation CpGs
+## Full
 
-Correlation analysis between CpGs and genes.
+This dataset is not filtered by the strength of the correlation between
+DMRs and DEGs.
 
-To examine the impact of DNA methylation on the local regulation of gene expression, the Pearson correlation (r) was calculated between the β values of CpGs located in promoter regions and the normalized expression values of the corresponding genes.
 
-First we subset the probes to select only those that are differentially methylated (0.4 difference in beta value & pval > 0.05) and fall in the promoter region:
+### Pathways
 
 ```{r}
-#| eval: false
-# CpGs located in promoter regions
-f <- function(x) {list("a","b")}
-DMP_prom <- dmps[UCSC_RefGene_Group %like% c("TSS"),]
 
+path_results<-function(pathway,topN=50,method="method",pval=0.05,path="results/pathways.csv",cols=NULL){
+  # pathway<-pathway[FDR<1,]
+  pathway$method<-pathway[[method]]
+  data.table::setorder(pathway,method,FDR)
+  sig_idx <- pathway[,.I[FDR < pval]  ,by=method]$V1
+  head_idx<-pathway[,.I[1:min(..topN,.N)],by=c(method,"Contrast")]$V1
+  res<-pathway[base::union(sig_idx,head_idx),]
+  # res[,TERM:=ifelse(FDR<pval,paste0("*** ",TERM," ***"),TERM)]
+  # data.table::fwrite(res,path)
+  results<-res[,.SD,.SDcols=c("Contrast","FDR",cols,"TERM","method")]
+  data.table::setorder(results,Contrast,method,FDR)
+  return(results)
+}
 
-# Possibility of multiple genes and genomic location per probe
-dt_list<- lapply(
-  DMP_prom$rn,function(cg){  # For every position or ProbeID do:
-    UCSC <- data.table(      # 1. generate a data.table (per row)
-      DMP_prom[rn==cg,       # 2. split UCSC gene and position
-               lapply(       # 3. new row for every combination of gene/position
-                 .SD,        # 4. add Contrast porbeID and bval difference
-                 function(x)unlist(strsplit(x,";"))
-                 )
-               ,by=c("Contrast","rn","diff_meanMeth")
-               ,.SDcols=c("UCSC_RefGene_Name","UCSC_RefGene_Group")]
-      )
-    })
-# 5. rbind all together:
-DMP_prom <- rbindlist(dt_list)|> unique()
-# 6. Discard genes outside promoter:
-DMP_prom <- DMP_prom[UCSC_RefGene_Group %like% "TSS" | UCSC_RefGene_Group == "5'UTR",]
-DMP_prom$Gene<-DMP_prom$UCSC_RefGene_Name
-DMP_prom$UCSC_RefGene_Name<-NULL
-saveRDS(DMP_prom,"data/DMP_prom.rds")
+library(gprofiler2)
+pathways_full <- lapply(unique(dt_cor$Contrast),function(cont){
+  library(gprofiler2)
+  library(data.table)
+   p<-gprofiler2::gost(signif = T ,unique(dt_cor[Contrast==cont,Gene]))[[1]]
+   if(!is.null(p)){
+    dth<- data.table::as.data.table(p)
+    dth[,FDR:=p_value]
+    dth[,TERM:=term_name]
+    dth[,source:=factor(source)]
+    dth[,Contrast:=cont]
+   }
+  })
+Pathway_Full<-path_results(rbindlist(pathways_full),method="source",cols = c("term_size","query_size","intersection_size"))
+saveRDS(Pathway_Full,"data/pathway_full.rds")
+```
+
+```{r}
+dtable(Pathway_Full)
 
 ```
 
-Now we can select all the genes present in DEGs with DMPs in the promoter:
+As you can see the terms are rather general. Let's try to filter based on the direction of correlation + / -:
+
+#### Positive:
 
 ```{r}
-dt_DEG_prom <- merge(DMP_prom,dt_DEGs,by="Gene")
-# genes_DEG_prom <- intersect(dt_DEGs$Gene  , DMP_prom$UCSC_RefGene_Name)
-# length(genes_DEG_prom)
-tab <- dt_DEG_prom[,.(
-  positive =sum(RealFC>2),
-  negative =sum(RealFC<0.5),
-  Hyper = sum(diff_meanMeth > 0),
-  Hypo = sum(diff_meanMeth < 0),
-  positive_Hyper=sum(RealFC>2 & diff_meanMeth > 0),
-  positive_Hypo=sum(RealFC>2 & diff_meanMeth < 0),
-  negative_Hyper=sum(RealFC<0.5 & diff_meanMeth > 0),
-  negative_Hypo=sum(RealFC<0.5 & diff_meanMeth < 0)
-)
-,by=c("Contrast.x","Contrast.y")]
-
-tab[c(1,4,8),]
-
+dt_pos <- dt_cor[correlation>0,]
+pathways_full_positive <- lapply(unique(dt_pos$Contrast),function(cont){
+  library(gprofiler2)
+  library(data.table)
+   p<-gprofiler2::gost(signif = T ,unique(dt_pos[Contrast==cont,Gene]))[[1]]
+   if(!is.null(p)){
+    dth<- data.table::as.data.table(p)
+    dth[,FDR:=p_value]
+    dth[,TERM:=term_name]
+    dth[,source:=factor(source)]
+    dth[,Contrast:=cont]
+   }
+  })
+Pathway_Full_Pos<-path_results(rbindlist(pathways_full_positive),method="source",cols = c("term_size","query_size","intersection_size"))
+saveRDS(Pathway_Full_Pos,"data/pathway_full_positive.rds")
 ```
-```{r}
-dt_DEG_prom <- merge(DMP_prom,dt_DEGs,by="Gene")
-```
-
-
-
-Note that a gene can be linked via multiple CpGs in its promoter, and thus, the correlation was calculated for each CpG-gene pair. |r|>0.3 and an adjusted p-value <0.05 were set as the cutoffs for a significant correlation.
 
 ```{r}
-dt<-dt_DEGs[,.SD,.SDcols=c("Gene","RealFC","Contrast")]
+dtable(Pathway_Full_Pos)
 ```
+
+
+#### Negative:
+
+```{r}
+dt_neg <- dt_cor[correlation<0,]
+pathways_full_negitive <- lapply(unique(dt_neg$Contrast),function(cont){
+  library(gprofiler2)
+  library(data.table)
+   p<-gprofiler2::gost(signif = T ,unique(dt_neg[Contrast==cont,Gene]))[[1]]
+   if(!is.null(p)){
+    dth<- data.table::as.data.table(p)
+    dth[,FDR:=p_value]
+    dth[,TERM:=term_name]
+    dth[,source:=factor(source)]
+    dth[,Contrast:=cont]
+   }
+  })
+Pathway_Full_neg<-path_results(rbindlist(pathways_full_negitive),method="source",cols = c("term_size","query_size","intersection_size"))
+saveRDS(Pathway_Full_neg,"data/pathway_full_negative.rds")
+```
+
+```{r}
+dtable(Pathway_Full_neg)
+```
+
+
+## cor.sig
+
+This dataset is not filtered by the strength of the correlation between
+DMRs and DEGs.
+
+
+### Pathways
+
+```{r}
+dt.sig <-  dt_cor[cor.pval<0.05 ,.(correlation=unique(correlation)),by=c("Contrast","Gene","width")]
+
+
+library(gprofiler2)
+pathways_full <- lapply(unique(dt.sig$Contrast),function(cont){
+  library(gprofiler2)
+  library(data.table)
+   p<-gprofiler2::gost(signif = T ,unique(dt.sig[Contrast==cont,Gene]))[[1]]
+   if(!is.null(p)){
+    dth<- data.table::as.data.table(p)
+    dth[,FDR:=p_value]
+    dth[,TERM:=term_name]
+    dth[,source:=factor(source)]
+    dth[,Contrast:=cont]
+   }
+  })
+Pathway_Full<-path_results(rbindlist(pathways_full),method="source",cols = c("term_size","query_size","intersection_size"))
+saveRDS(Pathway_Full,"data/pathway_full_sig.rds")
+```
+
+```{r}
+dtable(Pathway_Full)
+
+```
+
+As you can see the terms are rather general. Let's try to filter based on the direction of correlation + / -:
+
+#### Positive:
+
+```{r}
+dt_pos <- dt.sig[correlation>0,]
+pathways_full_positive <- lapply(unique(dt_pos$Contrast),function(cont){
+  library(gprofiler2)
+  library(data.table)
+   p<-gprofiler2::gost(signif = T ,unique(dt_pos[Contrast==cont,Gene]))[[1]]
+   if(!is.null(p)){
+    dth<- data.table::as.data.table(p)
+    dth[,FDR:=p_value]
+    dth[,TERM:=term_name]
+    dth[,source:=factor(source)]
+    dth[,Contrast:=cont]
+   }
+  })
+Pathway_Full_Pos<-path_results(rbindlist(pathways_full_positive),method="source",cols = c("term_size","query_size","intersection_size"))
+saveRDS(Pathway_Full_Pos,"data/pathway_full_positive_sig.rds")
+```
+
+```{r}
+dtable(Pathway_Full_Pos)
+```
+
+
+#### Negative:
+
+```{r}
+dt_neg <- dt.sig[correlation<0,]
+pathways_full_negitive <- lapply(unique(dt_neg$Contrast),function(cont){
+  library(gprofiler2)
+  library(data.table)
+   p<-gprofiler2::gost(signif = T ,unique(dt_neg[Contrast==cont,Gene]))[[1]]
+   if(!is.null(p)){
+    dth<- data.table::as.data.table(p)
+    dth[,FDR:=p_value]
+    dth[,TERM:=term_name]
+    dth[,source:=factor(source)]
+    dth[,Contrast:=cont]
+   }
+  })
+Pathway_Full_neg<-path_results(rbindlist(pathways_full_negitive),method="source",cols = c("term_size","query_size","intersection_size"))
+saveRDS(Pathway_Full_neg,"data/pathway_full_negative_sig.rds")
+```
+
+```{r}
+dtable(Pathway_Full_neg)
+```
+
+
+
+<!-- #### Tat_off -->
+
+<!-- ```{r} -->
+<!-- #| column: screen-inset-right -->
+<!-- #| layout-ncol: 2 -->
+<!-- #| results: hide -->
+<!-- #| fig-keep: all -->
+<!-- DMR_DEG_plots[["Tat_off"]] -->
+<!-- ``` -->
+
+<!-- #### Tat72_off -->
+
+<!-- ```{r} -->
+<!-- #| column: screen-inset-right -->
+<!-- #| layout-ncol: 2 -->
+<!-- #| results: hide -->
+<!-- #| fig-keep: all -->
+<!-- DMR_DEG_plots[["Tat72_off"]] -->
+<!-- ``` -->
+
+
+
+<!-- <!-- ::: --> -->
+
+
+
+
+
+
+
+<!-- <!-- ### DMPS: --> -->
+
+<!-- <!-- ```{r} --> -->
+<!-- <!-- #| eval: false --> -->
+<!-- <!-- dmps <-tar_read(dmps_f_full) --> -->
+<!-- <!-- dmps[Contrast=="Control_No-TAT_No",] --> -->
+<!-- <!-- ``` --> -->
+
+
+<!-- <!-- ## DEGs vs methylation CpGs --> -->
+
+<!-- <!-- Correlation analysis between CpGs and genes. --> -->
+
+<!-- <!-- To examine the impact of DNA methylation on the local regulation of gene expression, the Pearson correlation (r) was calculated between the β values of CpGs located in promoter regions and the normalized expression values of the corresponding genes. --> -->
+
+<!-- <!-- First we subset the probes to select only those that are differentially methylated (0.4 difference in beta value & pval > 0.05) and fall in the promoter region: --> -->
+
+<!-- <!-- ```{r} --> -->
+<!-- <!-- #| eval: false --> -->
+<!-- <!-- # CpGs located in promoter regions --> -->
+<!-- <!-- f <- function(x) {list("a","b")} --> -->
+<!-- <!-- DMP_prom <- dmps[UCSC_RefGene_Group %like% c("TSS"),] --> -->
+
+
+<!-- <!-- # Possibility of multiple genes and genomic location per probe --> -->
+<!-- <!-- dt_list<- lapply( --> -->
+<!-- <!--   DMP_prom$rn,function(cg){  # For every position or ProbeID do: --> -->
+<!-- <!--     UCSC <- data.table(      # 1. generate a data.table (per row) --> -->
+<!-- <!--       DMP_prom[rn==cg,       # 2. split UCSC gene and position --> -->
+<!-- <!--                lapply(       # 3. new row for every combination of gene/position --> -->
+<!-- <!--                  .SD,        # 4. add Contrast porbeID and bval difference --> -->
+<!-- <!--                  function(x)unlist(strsplit(x,";")) --> -->
+<!-- <!--                  ) --> -->
+<!-- <!--                ,by=c("Contrast","rn","diff_meanMeth") --> -->
+<!-- <!--                ,.SDcols=c("UCSC_RefGene_Name","UCSC_RefGene_Group")] --> -->
+<!-- <!--       ) --> -->
+<!-- <!--     }) --> -->
+<!-- <!-- # 5. rbind all together: --> -->
+<!-- <!-- DMP_prom <- rbindlist(dt_list)|> unique() --> -->
+<!-- <!-- # 6. Discard genes outside promoter: --> -->
+<!-- <!-- DMP_prom <- DMP_prom[UCSC_RefGene_Group %like% "TSS" | UCSC_RefGene_Group == "5'UTR",] --> -->
+<!-- <!-- DMP_prom$Gene<-DMP_prom$UCSC_RefGene_Name --> -->
+<!-- <!-- DMP_prom$UCSC_RefGene_Name<-NULL --> -->
+<!-- <!-- saveRDS(DMP_prom,"data/DMP_prom.rds") --> -->
+
+<!-- <!-- ``` --> -->
+
+<!-- <!-- Now we can select all the genes present in DEGs with DMPs in the promoter: --> -->
+
+<!-- <!-- ```{r} --> -->
+<!-- <!-- dt_DEG_prom <- merge(DMP_prom,dt_DEGs,by="Gene") --> -->
+<!-- <!-- # genes_DEG_prom <- intersect(dt_DEGs$Gene  , DMP_prom$UCSC_RefGene_Name) --> -->
+<!-- <!-- # length(genes_DEG_prom) --> -->
+<!-- <!-- tab <- dt_DEG_prom[,.( --> -->
+<!-- <!--   positive =sum(RealFC>2), --> -->
+<!-- <!--   negative =sum(RealFC<0.5), --> -->
+<!-- <!--   Hyper = sum(diff_meanMeth > 0), --> -->
+<!-- <!--   Hypo = sum(diff_meanMeth < 0), --> -->
+<!-- <!--   positive_Hyper=sum(RealFC>2 & diff_meanMeth > 0), --> -->
+<!-- <!--   positive_Hypo=sum(RealFC>2 & diff_meanMeth < 0), --> -->
+<!-- <!--   negative_Hyper=sum(RealFC<0.5 & diff_meanMeth > 0), --> -->
+<!-- <!--   negative_Hypo=sum(RealFC<0.5 & diff_meanMeth < 0) --> -->
+<!-- <!-- ) --> -->
+<!-- <!-- ,by=c("Contrast.x","Contrast.y")] --> -->
+
+<!-- <!-- tab[c(1,4,8),] --> -->
+
+<!-- <!-- ``` --> -->
+<!-- <!-- ```{r} --> -->
+<!-- <!-- dt_DEG_prom <- merge(DMP_prom,dt_DEGs,by="Gene") --> -->
+<!-- <!-- ``` --> -->
+
+
+
+<!-- <!-- Note that a gene can be linked via multiple CpGs in its promoter, and thus, the correlation was calculated for each CpG-gene pair. |r|>0.3 and an adjusted p-value <0.05 were set as the cutoffs for a significant correlation. --> -->
+
+<!-- <!-- ```{r} --> -->
+<!-- <!-- dt<-dt_DEGs[,.SD,.SDcols=c("Gene","RealFC","Contrast")] --> -->
+<!-- <!-- ``` --> -->

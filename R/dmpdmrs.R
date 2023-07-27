@@ -258,25 +258,31 @@ DMPextr <- function(
     fit, ContrastsDM=colnames(fit$contrasts), p.value, beta_normalized, mDiff, ann,
     writedir = "analysis/DMP_", writeOut = TRUE,ncores=NULL){
   require(foreach)
-  
+  require(bigstatsr)
+  require(data.table)
   ann<-data.table::as.data.table(ann,keep.rownames = "rn")
+  ann$rn<-as.numeric(ann$rn)
   data.table::setkey(ann,"rn")
   # ann      = getAnnotation(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
-  annSub   = ann[rownames(beta_normalized)]
 
+  betas <- bigstatsr::FBM(NROW(beta_normalized),NCOL(beta_normalized));betas[] <- as.matrix(beta_normalized)
+  
   if(is.null(ncores))ncores=length(ContrastsDM)
   
-  cl<- parallel::makePSOCKcluster(ncores,outfile="")
-  # parallel::clusterEvalQ(cl,{
-  #   requireNamespace(c("limma","data.table"))
-  #   data.table::setDTthreads(0)
-  # })
+  cl<- parallel::makeCluster(ncores,outfile="",useXDR=F,type = "FORK")
+  parallel::clusterEvalQ(cl,{
+    requireNamespace(c("limma","data.table"))
+    data.table::setDTthreads(0)
+  })
+  
+  
   doParallel::registerDoParallel(cl)
   
   message("Processing ", length(ContrastsDM)," contrasts. Using ",ncores," cores.")
   res<-foreach::foreach(i=itertools::isplitIndices(length(ContrastsDM), chunks=ncores),#isplitIndices(1400,chunks=ncores),
                         .combine='rbind',
-                        .multicombine = F,.packages = c("limma","data.table"),
+                        # .multicombine = F,
+                        .packages = c("limma","data.table"),
                         # .export = c("guessArrayTypes",".default.epic.annotation"),
                         .inorder=F,
                         .errorhandling = "pass"
@@ -284,16 +290,18 @@ DMPextr <- function(
     DMP_1 <- limma::topTable(fit,
                              num = Inf,
                              coef = i ,
-                             genelist = annSub,
+                             genelist = ann,
                              p.value = p.value  # = p.adj
     )
     
     if(nrow(DMP_1)<2){
       warning(paste("No DMP found for contrast:", ContrastsDM[i], sep=" "))
-      dt<-annSub[0,]
+      dt<-ann[0,]
+      dt[,c("logFC","AveExpr","t","P.Value","adj.P.Val", "B"):=numeric()]
       dt$Type=character(length = 0L)
       dt$Contrast=character(length=0L)
       dt$diff_meanMeth=numeric(length = 0L)
+      dt[,]
       return(dt)
       
     }
@@ -323,8 +331,8 @@ DMPextr <- function(
       design <-t(design) * c1
       
       # betas
-      cg         <- which(rownames(beta_normalized) %in% rownames(DMP_1))
-      betas <-beta_normalized[cg,]
+       
+      betas <-betas[rownames(beta_normalized) %in% DMP_1$rn,]
       # diff  _mean:
       DMP_1$diff_meanMeth<-rowSums(apply(design,1,function(x) apply(betas%*%diag(x),1,function(y)mean(y[y!=0]))))
       
@@ -527,4 +535,40 @@ summarize<-function(dmps,dmrs,path="results/"){
   s<-merge(sdmps,sdmrs)
   data.table::fwrite(s,path)
   return(s)
+}
+
+vulcanos<-function(data,x,y,color,label,max.overlaps = 15,pCutoff=0.05,FCcutoff=2,labSize=5.0){
+  library(ggrepel)
+  # plot adding up all layers we have seen so far
+  # DEGs$diffexpressed <- ifelse(abs(DEGs$logFC)<2,"NO",ifelse(DEGs$logFC < 0,"DOWN","UP"))
+  p<-ggplot(data=DEGs, aes(x=.data[[x]], y=-log10(.data[[y]]), col=.data[[color]])) +
+    geom_point() + 
+    theme_minimal() +
+    # geom_text_repel() +
+    scale_color_manual(values=c("blue", "black", "red")) +
+    geom_vline(xintercept=c(-FCcutoff, FCcutoff), col="#4CBB17") +
+    geom_hline(yintercept=-log10(pCutoff), col="#4CBB17")+
+    facet_wrap(~Contrast,ncol = 1)
+  
+  plot <- p + geom_text_repel(
+    data = subset(data,
+                  data[[y]] < pCutoff &
+                    abs(data[[x]]) > FCcutoff),
+    aes(label = subset(data,
+                       data[[y]] < pCutoff &
+                         abs(data[[x]]) > FCcutoff)[[label]]),
+    xlim = c(NA, NA),
+    ylim = c(NA, NA),
+    size = labSize,
+    segment.color = 'grey10',
+    segment.size = 0.5,
+    arrow = NULL,
+    colour = "black",
+    fontface = 'plain',
+    parse = FALSE,
+    na.rm = TRUE,
+    direction = 'both',
+    max.overlaps = 15,
+    min.segment.length = 0)
+  return(plot)
 }
